@@ -3,77 +3,6 @@ import * as THREE from "three";
 import {onUnmounted} from "vue";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
 
-type ParallaxLayer = {
-  obj: THREE.Object3D
-  depthFactor: number
-}
-const layers: ParallaxLayer[] = []
-let mouse = new THREE.Vector2()
-const maxRotation = Math.PI / 18; // 最大旋转角度22.5度
-const sensitivity = 0.3 // 鼠标灵敏度
-
-// 新增工具函数：坐标映射
-const mapToSphere = (v: THREE.Vector2, radius: number) => {
-  const length = Math.min(v.length(), radius)
-  return v.normalize().multiplyScalar(length)
-}
-
-// 新增视差系统初始化
-const initParallaxSystem = () => {
-  // 将现有对象分层
-  layers.push(
-    { obj: wall, depthFactor: 0.3 },      // 背景层（移动量30%）
-    { obj: rectangle, depthFactor: 0.6 }, // 中间层（移动量60%）
-    { obj: spotLight, depthFactor: 0.3 } // 光源层（100%跟随）
-  )
-
-  // 初始化灯光投影更新
-  spotLight.target = rectangle
-  spotLight.target.updateMatrixWorld()
-
-  // 添加鼠标追踪
-  window.addEventListener('mousemove', onMouseMove)
-}
-
-// 新增鼠标事件处理
-const onMouseMove = (event: MouseEvent) => {
-  // 转换为归一化坐标 [-1, 1]
-  const rawX= (event.clientX / window.innerWidth) * 2 - 1
-  const rawY = -(event.clientY / window.innerHeight) * 2 + 1
-
-  mouse.x = rawX * sensitivity
-  mouse.y = rawY * sensitivity
-
-  // 应用球形映射限制
-  const spherePos = mapToSphere(new THREE.Vector2(mouse.x, mouse.y), 0.8)
-  mouse.x = spherePos.x
-  mouse.y = spherePos.y
-}
-
-// 新增动画更新逻辑
-const updateParallax = () => {
-  layers.forEach(layer => {
-    // 计算层位移
-    const xOffset = mouse.x * maxRotation * layer.depthFactor
-    const yOffset = mouse.y * maxRotation * layer.depthFactor
-
-    // 应用旋转偏移
-    layer.obj.rotation.x = yOffset
-    layer.obj.rotation.y = xOffset
-
-    // 光源实时跟随
-    if (layer.obj === spotLight) {
-      layer.obj.position.x = 1.8 + xOffset * 2 * sensitivity
-      layer.obj.position.y = 1.8 + yOffset * 2 * sensitivity
-      layer.obj.position.z = 0.2 + (xOffset + yOffset) * 0.5 * sensitivity
-    }
-  })
-
-  // 更新阴影
-  spotLight.target.updateMatrixWorld()
-  renderer.shadowMap.needsUpdate = true
-}
-
 // 添加坐标系辅助线
 const addAuxiliaryCoordinateSystem = () => {
   // 添加坐标系辅助线（参数为坐标轴长度）
@@ -128,15 +57,13 @@ const initRenderer = () => {
 // 渲染函数
 const render = () => {
   requestAnimationFrame(render);
-  updateParallax() // 新增视差更新
   renderer.render(scene, camera);
   controls.update()
 }
 
 // 创建黑色背景墙
 const createWall = () => {
-  const geometry = new THREE.PlaneGeometry(12, 3);
-  geometry.translate(6,1.5,0)
+  const geometry = new THREE.PlaneGeometry(2, 2);
   const material = new THREE.MeshStandardMaterial({
     color: 0x000000,
     side: THREE.DoubleSide,
@@ -145,14 +72,14 @@ const createWall = () => {
   });
   const wall = new THREE.Mesh(geometry, material);
   wall.receiveShadow = true;
-  wall.position.set(-1, 0, 0);
+  wall.position.set(1, 1, 0);
   return wall;
 };
 
 // 创建矩形
 const createRectangle = () => {
-  const width = 0.8;
-  const height = 0.8;
+  const width = 1;
+  const height = 1;
   const thickness = 0.05;
   // 创建立方体几何（带厚度）
   const geometry = new THREE.BoxGeometry(width, height, thickness);
@@ -271,9 +198,6 @@ scene.add(ambientLight);
 // 添加射灯
 const spotLight = createSpotlight()
 scene.add(spotLight)
-
-// 新增视差系统初始化
-initParallaxSystem()
 
 // 运行渲染器
 render()
