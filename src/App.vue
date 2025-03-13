@@ -2,6 +2,8 @@
 import * as THREE from "three";
 import {onUnmounted} from "vue";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
 type ParallaxLayer = {
   obj: THREE.Object3D
@@ -169,7 +171,7 @@ const createRectangle = () => {
 
   // 位置设置（墙面正前方）
   rectangle.position.set(
-    1,                  // 保持与墙面X轴对齐
+    3,                  // 保持与墙面X轴对齐
     1,                  // 保持与墙面Y轴对齐
     0.1       // Z轴偏移：厚度的一半，使矩形前表面紧贴墙面
   );
@@ -226,6 +228,37 @@ const createSpotlight = () => {
   return spotLight;
 }
 
+// 加载中文自定义字体
+const createChineseText = async () => {
+  const loader = new FontLoader();
+  loader.load( '/helvetiker_bold.typeface.json', function ( font ) {
+    const geometry = new TextGeometry('Hello World', {
+      font: font,
+      size: 0.05,
+      depth: 0.02,
+      curveSegments: 4,
+      bevelEnabled: false
+    })
+    // 3. 创建材质
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 0.5
+    });
+    // 4. 生成网格
+    const textMesh = new THREE.Mesh(geometry, material);
+    // 设置文字位置（位于墙面正前方）
+    textMesh.position.set(
+      1,    // X轴与墙面中心对齐
+      1,    // Y轴与墙面中心对齐
+      0.15  // Z轴在矩形前方
+    );
+    // 阴影设置
+    textMesh.castShadow = true;
+    textMesh.receiveShadow = true;
+    scene.add(textMesh);
+  })
+}
+
 // ===============================main===================================
 
 // 初始化场景
@@ -271,6 +304,8 @@ scene.add(ambientLight);
 // 添加射灯
 const spotLight = createSpotlight()
 scene.add(spotLight)
+
+createChineseText()
 
 // 新增视差系统初始化
 initParallaxSystem()
