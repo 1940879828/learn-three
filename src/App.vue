@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import * as THREE from "three";
-import {onUnmounted} from "vue";
+import {onMounted, onUnmounted} from "vue";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
@@ -11,22 +11,84 @@ type ParallaxLayer = {
 }
 const layers: ParallaxLayer[] = []
 let mouse = new THREE.Vector2()
-const maxRotation = Math.PI / 18; // 最大旋转角度22.5度
 const sensitivity = 0.3 // 鼠标灵敏度
+const baseIntensity = 0.2 // 基础位移强度
+// 初始化基础场景
+const scene = new THREE.Scene();
 
-// 新增工具函数：坐标映射
-const mapToSphere = (v: THREE.Vector2, radius: number) => {
-  const length = Math.min(v.length(), radius)
-  return v.normalize().multiplyScalar(length)
+// 添加射灯
+const createSpotlight = ({scene,X,Y,Z,targetZ,targetY,targetX}:{
+  scene:THREE.Scene
+  X:number
+  Y:number
+  Z:number
+  targetX:number
+  targetY:number
+  targetZ:number
+}) => {
+  const spotLight = new THREE.SpotLight(
+    0xfff4e5,   // 暖白色 (16进制颜色)
+    8,          // 光照强度
+    10,         // 照射距离
+    Math.PI/9,  // 照射角度 45度 (弧度制)
+    0.5,       // 边缘衰减系数 (0-1)
+    0.8         // 光强衰减系数
+  )
+
+  spotLight.position.set(X,Y,Z)
+  spotLight.target.position.set(targetX,targetY,targetZ)
+  spotLight.userData.originalX = X
+  spotLight.userData.originalY = Y
+  spotLight.userData.originalZ = Z
+  spotLight.target.updateMatrixWorld()
+
+  // 阴影优化配置
+  spotLight.castShadow = true;
+  spotLight.shadow.mapSize.width = 2048;  // 阴影分辨率
+  spotLight.shadow.mapSize.height = 2048;
+  spotLight.shadow.bias = -0.001;        // 消除阴影瑕疵
+  spotLight.shadow.normalBias = 0.05;    // 解决曲面阴影问题
+
+  // 添加辅助线（调试用）
+  const lightHelper = new THREE.SpotLightHelper(spotLight);
+  scene.add(lightHelper);
+
+  return spotLight;
 }
 
+const spotLight = createSpotlight({
+  scene,
+  X:1.8,
+  Y:1.8,
+  Z:0.2,
+  targetX: 1,
+  targetY: 1,
+  targetZ: 0,
+});
+
+const spotLight2 = createSpotlight({
+  scene,
+  X:0,
+  Y:2,
+  Z:1,
+  targetX: 1,
+  targetY: 1,
+  targetZ: 0,
+});
+
 // 新增视差系统初始化
-const initParallaxSystem = () => {
+const initParallaxSystem = ({wall,rectangle,textMesh,spotLight}:{
+  wall: THREE.Mesh,
+  rectangle:THREE.Mesh,
+  textMesh:THREE.Mesh,
+  spotLight: THREE.SpotLight,
+}) => {
   // 将现有对象分层
   layers.push(
-    { obj: wall, depthFactor: 0.3 },      // 背景层（移动量30%）
+    { obj: wall, depthFactor: 0 },      // 背景层（移动量30%）
     { obj: rectangle, depthFactor: 0.6 }, // 中间层（移动量60%）
-    { obj: spotLight, depthFactor: 0.3 } // 光源层（100%跟随）
+    { obj: textMesh, depthFactor: 0.6 },
+    { obj: spotLight, depthFactor: 0 } // 光源层（100%跟随）
   )
 
   // 初始化灯光投影更新
@@ -37,38 +99,24 @@ const initParallaxSystem = () => {
   window.addEventListener('mousemove', onMouseMove)
 }
 
-// 新增鼠标事件处理
+// 鼠标事件处理
 const onMouseMove = (event: MouseEvent) => {
-  // 转换为归一化坐标 [-1, 1]
-  const rawX= (event.clientX / window.innerWidth) * 2 - 1
+  const rawX = (event.clientX / window.innerWidth) * 2 - 1
   const rawY = -(event.clientY / window.innerHeight) * 2 + 1
-
   mouse.x = rawX * sensitivity
   mouse.y = rawY * sensitivity
-
-  // 应用球形映射限制
-  const spherePos = mapToSphere(new THREE.Vector2(mouse.x, mouse.y), 0.8)
-  mouse.x = spherePos.x
-  mouse.y = spherePos.y
 }
 
 // 新增动画更新逻辑
 const updateParallax = () => {
   layers.forEach(layer => {
     // 计算层位移
-    const xOffset = mouse.x * maxRotation * layer.depthFactor
-    const yOffset = mouse.y * maxRotation * layer.depthFactor
+    const xOffset = mouse.x * baseIntensity * layer.depthFactor
+    const yOffset = mouse.y * baseIntensity * layer.depthFactor
 
-    // 应用旋转偏移
-    layer.obj.rotation.x = yOffset
-    layer.obj.rotation.y = xOffset
-
-    // 光源实时跟随
-    if (layer.obj === spotLight) {
-      layer.obj.position.x = 1.8 + xOffset * 2 * sensitivity
-      layer.obj.position.y = 1.8 + yOffset * 2 * sensitivity
-      layer.obj.position.z = 0.2 + (xOffset + yOffset) * 0.5 * sensitivity
-    }
+    // 应用偏移
+    layer.obj.position.x = layer.obj.userData.originalX + xOffset
+    layer.obj.position.y = layer.obj.userData.originalY + yOffset
   })
 
   // 更新阴影
@@ -77,7 +125,7 @@ const updateParallax = () => {
 }
 
 // 添加坐标系辅助线
-const addAuxiliaryCoordinateSystem = () => {
+const addAuxiliaryCoordinateSystem = (scene:THREE.Scene) => {
   // 添加坐标系辅助线（参数为坐标轴长度）
   const axesHelper = new THREE.AxesHelper(5); // 创建 5 单位长度的坐标轴
   scene.add(axesHelper);
@@ -147,7 +195,11 @@ const createWall = () => {
   });
   const wall = new THREE.Mesh(geometry, material);
   wall.receiveShadow = true;
-  wall.position.set(-1, 0, 0);
+  const wallX = -1
+  const wallY = 0
+  wall.position.set(wallX, wallY, 0);
+  wall.userData.originalX = wallX;  // 存储初始X位置
+  wall.userData.originalY = wallY;   // 存储初始Y位置
   return wall;
 };
 
@@ -169,12 +221,16 @@ const createRectangle = () => {
 
   const rectangle = new THREE.Mesh(geometry, material);
 
+  const rectX = 3
+  const rectY = 1
   // 位置设置（墙面正前方）
   rectangle.position.set(
-    3,                  // 保持与墙面X轴对齐
-    1,                  // 保持与墙面Y轴对齐
+    rectX,                  // 保持与墙面X轴对齐
+    rectY,                  // 保持与墙面Y轴对齐
     0.1       // Z轴偏移：厚度的一半，使矩形前表面紧贴墙面
   );
+  rectangle.userData.originalX = rectX;  // 初始X
+  rectangle.userData.originalY = rectY;  // 初始Y
 
   // 阴影设置
   rectangle.castShadow = true;    // 投射阴影
@@ -199,90 +255,52 @@ const addCameraHelper = (scene:THREE.Scene) => {
   scene.add(cameraHelper)
 }
 
-// 添加射灯
-const createSpotlight = () => {
-  const spotLight = new THREE.SpotLight(
-    0xfff4e5,   // 暖白色 (16进制颜色)
-    8,          // 光照强度
-    10,         // 照射距离
-    Math.PI/9,  // 照射角度 45度 (弧度制)
-    0.8,       // 边缘衰减系数 (0-1)
-    0.8         // 光强衰减系数
-  )
-
-  spotLight.position.set(1.8,1.8,0.2)
-  spotLight.target.position.set(1,1,0)
-  spotLight.target.updateMatrixWorld()
-
-  // 阴影优化配置
-  spotLight.castShadow = true;
-  spotLight.shadow.mapSize.width = 2048;  // 阴影分辨率
-  spotLight.shadow.mapSize.height = 2048;
-  spotLight.shadow.bias = -0.001;        // 消除阴影瑕疵
-  spotLight.shadow.normalBias = 0.05;    // 解决曲面阴影问题
-
-  // 添加辅助线（调试用）
-  const lightHelper = new THREE.SpotLightHelper(spotLight);
-  scene.add(lightHelper);
-
-  return spotLight;
-}
-
 // 加载中文自定义字体
 const createChineseText = async () => {
   const loader = new FontLoader();
-  loader.load( '/helvetiker_bold.typeface.json', function ( font ) {
-    const geometry = new TextGeometry('Hello World', {
-      font: font,
-      size: 0.05,
-      depth: 0.02,
-      curveSegments: 4,
-      bevelEnabled: false
-    })
-    // 3. 创建材质
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      metalness: 0.5
-    });
-    // 4. 生成网格
-    const textMesh = new THREE.Mesh(geometry, material);
-    // 设置文字位置（位于墙面正前方）
-    textMesh.position.set(
-      1,    // X轴与墙面中心对齐
-      1,    // Y轴与墙面中心对齐
-      0.15  // Z轴在矩形前方
+  // 使用Promise包装字体加载
+  return new Promise<THREE.Mesh>((resolve, reject) => {
+    loader.load('/helvetiker_bold.typeface.json',
+      (font) => {
+        const geometry = new TextGeometry('Hello World', {
+          font: font,
+          size: 0.05,
+          depth: 0.01,
+          curveSegments: 12,
+          bevelEnabled: false
+        });
+
+        const material = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          metalness: 1
+        });
+
+        const textMesh = new THREE.Mesh(geometry, material);
+        const posX = 1;
+        const posY = 1;
+
+        textMesh.position.set(posX, posY, 0.2);
+        textMesh.userData.originalX = posX;
+        textMesh.userData.originalY = posY;
+
+        textMesh.castShadow = true;
+        textMesh.receiveShadow = true;
+
+        // 将创建好的mesh通过Promise返回
+        resolve(textMesh);
+      },
+      undefined,  // 添加progress回调占位
+      (error) => {
+        reject(new Error(`字体加载失败: ${error}`));
+      }
     );
-    // 阴影设置
-    textMesh.castShadow = true;
-    textMesh.receiveShadow = true;
-    scene.add(textMesh);
-  })
+  });
 }
 
 // ===============================main===================================
 
-// 初始化场景
-const scene = new THREE.Scene();
-
-// 添加墙壁
-let wall = createWall();
-scene.add(wall);
-
-// 添加矩形
-let rectangle = createRectangle();
-scene.add(rectangle);
-
-// 添加坐标系和网格地板
-addAuxiliaryCoordinateSystem()
-
 // 初始化相机
 const camera = initCamera()
-
-// 在场景中添加目标点标记
-addTargetPoint({x:1,y:1,z:0,scene})
-
-// 添加相机朝向辅助线
-addCameraHelper(scene)
 
 // 初始化渲染器
 const renderer = initRenderer()
@@ -290,25 +308,58 @@ const renderer = initRenderer()
 // 初始化控制器
 const controls = initControls({camera})
 
-// 添加平行光源
-const light = new THREE.DirectionalLight(0xffffff, 1)
-light.position.set(0, 50, 0)
-scene.add(light)
-const lightHelper = new THREE.DirectionalLightHelper(light);
-scene.add(lightHelper);
+// 将主要初始化逻辑封装成函数
+const initAll = async () => {
+  const wall = createWall();
+  const rectangle = createRectangle();
 
-// 在场景中添加环境光（柔和补光）
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // 强度0.5
-scene.add(ambientLight);
+  // 异步加载文字
+  const textMesh = await createChineseText();
 
-// 添加射灯
-const spotLight = createSpotlight()
-scene.add(spotLight)
+  // 添加坐标系和网格地板
+  addAuxiliaryCoordinateSystem(scene)
 
-createChineseText()
+  // 添加元素到场景
+  scene.add(wall);
+  scene.add(rectangle);
+  scene.add(spotLight);
+  scene.add(spotLight2);
+  scene.add(textMesh);
 
-// 新增视差系统初始化
-initParallaxSystem()
+  // 添加平行光源
+  const light = new THREE.DirectionalLight(0xffffff, 1)
+  light.position.set(0, 50, 0)
+  scene.add(light)
+  const lightHelper = new THREE.DirectionalLightHelper(light);
+  scene.add(lightHelper);
+
+  // 在场景中添加环境光（柔和补光）
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // 强度0.5
+  scene.add(ambientLight);
+
+  // 在场景中添加目标点标记
+  addTargetPoint({x:1,y:1,z:0,scene})
+
+  // 添加相机朝向辅助线
+  addCameraHelper(scene)
+
+  // 初始化视差系统
+  initParallaxSystem({
+    wall,
+    rectangle,
+    textMesh,
+    spotLight
+  });
+}
+
+onMounted(async () => {
+  try {
+    await initAll();
+    render();
+  } catch (error) {
+    console.error('初始化失败:', error);
+  }
+})
 
 // 运行渲染器
 render()
