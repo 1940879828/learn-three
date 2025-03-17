@@ -2,9 +2,25 @@
 import * as THREE from "three";
 import {onMounted, onUnmounted} from "vue";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
+import {createSpotlight, createSpotlights} from "./lib/spotLightUtils.ts"
 
 // 初始化基础场景
 const scene = new THREE.Scene();
+
+const createSpotlightList = (scene:THREE.Scene) => {
+  const startPos = new THREE.Vector3(0, 2,0.2)
+  const direction = new THREE.Vector3(1, 0, 0)
+  const targetOffset = new THREE.Vector3(0, -2, 0)
+  const lights = createSpotlights({
+    scene,
+    startPosition: startPos,
+    direction,
+    count: 6,
+    spacing: 2,
+    targetOffset,
+    color: 0xffffff
+  })
+}
 
 // 新增角度限制函数
 const clampAngle = (currentPos: THREE.Vector3, lightPos: THREE.Vector3, minAngle: number, maxAngle: number) => {
@@ -40,7 +56,7 @@ const addDebugHelpers = () => {
   // 显示目标点轨迹
   const targetHelper = new THREE.AxesHelper(0.5)
   targetHelper.name = 'targetHelper'
-  spotLight.target.add(targetHelper)
+  // spotLight.target.add(targetHelper)
 
   // 显示射线落点
   const sphere = new THREE.Mesh(
@@ -51,90 +67,33 @@ const addDebugHelpers = () => {
   scene.add(sphere)
 }
 
-
-// 添加射灯
-const createSpotlight = ({scene,X,Y,Z,targetZ,targetY,targetX}:{
-  scene:THREE.Scene
-  X:number
-  Y:number
-  Z:number
-  targetX:number
-  targetY:number
-  targetZ:number
-}) => {
-  const spotLight = new THREE.SpotLight(
-    0xfff4e5,   // 暖白色 (16进制颜色)
-    8,          // 光照强度
-    10,         // 照射距离
-    Math.PI/9,  // 照射角度 45度 (弧度制)
-    0.5,       // 边缘衰减系数 (0-1)
-    0.8         // 光强衰减系数
-  )
-
-  spotLight.position.set(X,Y,Z)
-  spotLight.target.position.set(targetX,targetY,targetZ)
-  spotLight.userData.originalX = X
-  spotLight.userData.originalY = Y
-  spotLight.userData.originalZ = Z
-  spotLight.target.updateMatrixWorld()
-
-  // 创建目标对象并添加到场景
-  const target = new THREE.Object3D()
-  target.position.set(targetX, targetY, targetZ)
-  spotLight.target = target
-  scene.add(target) // 新增这行
-
-  // 阴影优化配置
-  spotLight.castShadow = true;
-  spotLight.shadow.mapSize.width = 2048;  // 阴影分辨率
-  spotLight.shadow.mapSize.height = 2048;
-  spotLight.shadow.bias = -0.001;        // 消除阴影瑕疵
-  spotLight.shadow.normalBias = 0.05;    // 解决曲面阴影问题
-
-  // 添加辅助线（调试用）
-  const lightHelper = new THREE.SpotLightHelper(spotLight);
-  scene.add(lightHelper);
-
-  return spotLight;
-}
-
-const spotLight = createSpotlight({
-  scene,
-  X:1.8,
-  Y:1.8,
-  Z:0.2,
-  targetX: 1,
-  targetY: 1,
-  targetZ: 0,
-});
-
 // 新增动画更新逻辑
 const updateParallax = () => {
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
   // 创建XY平面（法向量为Z轴方向）
-  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -spotLight.position.z);
-  const intersection = new THREE.Vector3();
+  // const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -spotLight.position.z);
+  // const intersection = new THREE.Vector3();
 
-  if (raycaster.ray.intersectPlane(plane, intersection)) {
+  // if (raycaster.ray.intersectPlane(plane, intersection)) {
     // 保持Z轴不变
-    intersection.z = spotLight.position.z;
+    // intersection.z = spotLight.position.z;
 
     // 应用角度限制
-    const clampedPos = clampAngle(
-      intersection,
-      spotLight.position,
-      210,   // 最小角度
-      330    // 最大角度
-    );
+    // // const clampedPos = clampAngle(
+    //   intersection,
+    //   // spotLight.position,
+    //   210,   // 最小角度
+    //   330    // 最大角度
+    // );
 
     // 更新目标位置
-    spotLight.target.position.lerp(clampedPos, 0.1);
-    spotLight.target.updateMatrixWorld();
-  }
+    // spotLight.target.position.lerp(clampedPos, 0.1);
+    // spotLight.target.updateMatrixWorld();
+  // }
   // 更新阴影
-  spotLight.target.updateMatrixWorld()
+  // spotLight.target.updateMatrixWorld()
   renderer.shadowMap.needsUpdate = true
 }
 
@@ -192,7 +151,7 @@ const initRenderer = () => {
 // 渲染函数
 const render = () => {
   requestAnimationFrame(render);
-  updateParallax() // 新增视差更新
+  updateParallax()
   renderer.render(scene, camera);
   controls.update()
 }
@@ -244,7 +203,8 @@ const initAll = async () => {
   // 添加元素到场景
   addDebugHelpers()
   scene.add(wall);
-  scene.add(spotLight);
+  // scene.add(spotLight);
+  createSpotlightList(scene)
   // 添加平行光源
   const light = new THREE.DirectionalLight(0xffffff, 1)
   light.position.set(0, 50, 0)
