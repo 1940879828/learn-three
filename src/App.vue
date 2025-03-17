@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import * as THREE from "three";
-import {onMounted, onUnmounted} from "vue";
+import {onMounted, onUnmounted, ref} from "vue";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
-import {createSpotlight, createSpotlights} from "./lib/spotLightUtils.ts"
+import {createSpotlights} from "./lib/spotLightUtils.ts"
 
 // 初始化基础场景
 const scene = new THREE.Scene();
+const spotlights = ref<THREE.SpotLight[]>([]);
+const mousePos = ref(new THREE.Vector2());
 
 const createSpotlightList = (scene:THREE.Scene) => {
   const startPos = new THREE.Vector3(0, 2,0.2)
@@ -20,34 +22,30 @@ const createSpotlightList = (scene:THREE.Scene) => {
     targetOffset,
     color: 0xffffff
   })
+  spotlights.value = lights;
 }
 
 // 新增角度限制函数
 const clampAngle = (currentPos: THREE.Vector3, lightPos: THREE.Vector3, minAngle: number, maxAngle: number) => {
-  // 转换为二维平面坐标（忽略Z轴）
-  const dir = new THREE.Vector2(
-    currentPos.x - lightPos.x,
-    currentPos.y - lightPos.y // 使用Y轴代替Z轴
-  ).normalize();
+  // 转换为相对于灯光的位置
+  const relativePos = currentPos.clone().sub(lightPos);
 
-  // 计算当前角度（以度为单位）
-  let angle = Math.atan2(dir.y, dir.x) * THREE.MathUtils.RAD2DEG;
+  // 转换为极坐标角度
+  let angle = Math.atan2(relativePos.y, relativePos.x) * THREE.MathUtils.RAD2DEG;
   if (angle < 0) angle += 360;
 
-  // 应用角度限制（示例：0°-5°）
-  if (angle < minAngle) {
-    angle = minAngle;
-  } else if (angle > maxAngle) {
-    angle = maxAngle;
-  }
+  // 限制角度范围
+  angle = THREE.MathUtils.clamp(angle, minAngle, maxAngle);
 
-  // 转换为新的方向向量
-  const rad = angle * THREE.MathUtils.DEG2RAD;
-  const radius = dir.length();
+  // 转换回笛卡尔坐标
+  const distance = relativePos.length();
+  const newX = Math.cos(angle * THREE.MathUtils.DEG2RAD) * distance;
+  const newY = Math.sin(angle * THREE.MathUtils.DEG2RAD) * distance;
+
   return new THREE.Vector3(
-    lightPos.x + Math.cos(rad) * radius,
-    lightPos.y + Math.sin(rad) * radius,
-    lightPos.z // 保持Z轴不变
+    lightPos.x + newX,
+    lightPos.y + newY,
+    lightPos.z
   );
 }
 
@@ -56,7 +54,6 @@ const addDebugHelpers = () => {
   // 显示目标点轨迹
   const targetHelper = new THREE.AxesHelper(0.5)
   targetHelper.name = 'targetHelper'
-  // spotLight.target.add(targetHelper)
 
   // 显示射线落点
   const sphere = new THREE.Mesh(
@@ -69,32 +66,35 @@ const addDebugHelpers = () => {
 
 // 新增动画更新逻辑
 const updateParallax = () => {
+  if (!spotlights.value.length) return;
+
   const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  raycaster.setFromCamera(mousePos.value, camera);
 
-  // 创建XY平面（法向量为Z轴方向）
-  // const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -spotLight.position.z);
-  // const intersection = new THREE.Vector3();
+  // 创建XY平面（与所有灯光同一Z轴平面）
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  const intersection = new THREE.Vector3();
 
-  // if (raycaster.ray.intersectPlane(plane, intersection)) {
-    // 保持Z轴不变
-    // intersection.z = spotLight.position.z;
+  spotlights.value.forEach(spotLight => {
+    if (raycaster.ray.intersectPlane(plane, intersection)) {
+      // 保持Z轴与灯光一致
+      intersection.z = spotLight.position.z;
 
-    // 应用角度限制
-    // // const clampedPos = clampAngle(
-    //   intersection,
-    //   // spotLight.position,
-    //   210,   // 最小角度
-    //   330    // 最大角度
-    // );
+      // 应用角度限制（示例：210°-330°）
+      const clampedPos = clampAngle(
+        intersection,
+        spotLight.position,
+        210,
+        330
+      );
 
-    // 更新目标位置
-    // spotLight.target.position.lerp(clampedPos, 0.1);
-    // spotLight.target.updateMatrixWorld();
-  // }
-  // 更新阴影
-  // spotLight.target.updateMatrixWorld()
-  renderer.shadowMap.needsUpdate = true
+      // 平滑移动目标点
+      spotLight.target.position.lerp(clampedPos, 0.1);
+      spotLight.target.updateMatrixWorld();
+    }
+  });
+
+  renderer.shadowMap.needsUpdate = true;
 }
 
 // 添加坐标系辅助线
@@ -221,9 +221,16 @@ const initAll = async () => {
   addCameraHelper(scene)
 }
 
+const onMouseMove = (event: MouseEvent) => {
+  mousePos.value.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mousePos.value.y = -(event.clientY / window.innerHeight) * 2 + 1;
+};
+
+
 onMounted(async () => {
   try {
     await initAll();
+    window.addEventListener('mousemove', onMouseMove);
     render();
   } catch (error) {
     console.error('初始化失败:', error);
@@ -237,6 +244,7 @@ render()
 onUnmounted(() => {
   scene?.clear();
   renderer?.dispose();
+  window.removeEventListener('mousemove', onMouseMove);
 });
 </script>
 
